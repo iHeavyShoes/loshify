@@ -62,4 +62,4 @@ jobs:
           HERMES_HOME: ${{ runner.temp }}/hermes-home
         run: |
           mkdir -p "$HERMES_HOME"
-          "${{ runner.temp }}/hermes-agent/scripts/run-in-hermes-env" hermes plugins validate "$GITHUB_WORKSPACE/loshify" --install-deps
+          cd "${{ runner.temp }}/hermes-agent" && scripts/run-in-hermes-env python -m hermes_cli.main plugins validate "$GITHUB_WORKSPACE/loshify" --install-deps
