@@ -56,7 +56,7 @@ jobs:
           path: loshify
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.14"  # Hermes v0.23 declares its runtime dependencies for Python >= 3.14
       - name: Install Hermes Agent ${{ env.HERMES_REF }}
         # Hermes refuses wheel builds; its supported developer route is an editable install of a checkout.
         run: |
