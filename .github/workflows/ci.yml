@@ -54,18 +54,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: loshify
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"  # Hermes v0.23 declares its runtime dependencies for Python >= 3.14
-      - name: Install Hermes Agent ${{ env.HERMES_REF }}
-        # Hermes refuses wheel builds; its supported developer route is an editable install of a checkout.
-        run: |
-          git clone --depth 1 --branch "${HERMES_REF}" https://github.com/NousResearch/hermes-agent.git "${{ runner.temp }}/hermes-agent"
-          python -m pip install -e "${{ runner.temp }}/hermes-agent"
+      - uses: astral-sh/setup-uv@v6
+      - name: Hermes Agent ${{ env.HERMES_REF }} (its own dev environment; Hermes refuses pip wheel builds)
+        run: git clone --depth 1 --branch "${HERMES_REF}" https://github.com/NousResearch/hermes-agent.git "${{ runner.temp }}/hermes-agent"
       - name: hermes plugins validate
         env:
           HERMES_HOME: ${{ runner.temp }}/hermes-home
         run: |
           mkdir -p "$HERMES_HOME"
-          hermes --version
-          hermes plugins validate ./loshify --install-deps
+          "${{ runner.temp }}/hermes-agent/scripts/run-in-hermes-env" hermes plugins validate "$GITHUB_WORKSPACE/loshify" --install-deps
