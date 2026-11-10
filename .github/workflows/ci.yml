@@ -58,7 +58,10 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install Hermes Agent ${{ env.HERMES_REF }}
-        run: python -m pip install "hermes-agent @ git+https://github.com/NousResearch/hermes-agent@${HERMES_REF}"
+        # Hermes refuses wheel builds; its supported developer route is an editable install of a checkout.
+        run: |
+          git clone --depth 1 --branch "${HERMES_REF}" https://github.com/NousResearch/hermes-agent.git "${{ runner.temp }}/hermes-agent"
+          python -m pip install -e "${{ runner.temp }}/hermes-agent"
       - name: hermes plugins validate
         env:
           HERMES_HOME: ${{ runner.temp }}/hermes-home
