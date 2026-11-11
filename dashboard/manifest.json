@@ -1,0 +1,11 @@
+{
+  "name": "loshify",
+  "label": "Loshify",
+  "description": "Your Spotify curator: setup, remote and reactions.",
+  "icon": "Music",
+  "version": "1.0.0",
+  "tab": {
+    "hidden": true
+  },
+  "api": "plugin_api.py"
+}

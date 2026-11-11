@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Test dependencies
+        # The plugin itself has no Python dependencies; FastAPI/httpx are for the Desktop router tests.
+        run: python -m pip install --upgrade pip pytest pyyaml fastapi httpx
+      - name: pytest (offline, fake Spotify transport; includes the static compliance gates)
+        run: python -m pytest -q
+
+  node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Desktop syntax check
+        run: node --check desktop/plugin.js
+      - name: Desktop tests (SDK stubbed)
+        run: node --import ./tests/js/register.mjs --test 'tests/js/*.test.mjs'
+
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Same floor as plugin.yaml requires_hermes. PyPI's hermes-agent lags behind, so install the release tag.
+      HERMES_REF: v0.23.0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: loshify
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Hermes Agent ${{ env.HERMES_REF }}
+        run: python -m pip install "hermes-agent @ git+https://github.com/NousResearch/hermes-agent@${HERMES_REF}"
+      - name: hermes plugins validate
+        env:
+          HERMES_HOME: ${{ runner.temp }}/hermes-home
+        run: |
+          mkdir -p "$HERMES_HOME"
+          hermes --version
+          hermes plugins validate ./loshify --install-deps

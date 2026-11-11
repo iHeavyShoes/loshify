@@ -1,0 +1,88 @@
+name: loshify
+version: "1.0.0"
+manifest_version: 2
+description: "Loshify: a Spotify curator that knows you. It learns your taste from your listening and your reactions, builds playlists with a reason for every track, and remembers what you loved and what you never want again. Your own Spotify app; Hermes holds the sign-in."
+author: "iHeavyShoes"
+license: MIT
+# Plugin oauth: (Hermes stores/refreshes the grant; the plugin never sees a token) shipped in v0.23.0 (#141510).
+requires_hermes: ">=0.23.0"
+optional_env:
+  - name: LOSHIFY_SPOTIFY_CLIENT_ID
+    description: "Client ID of your own Spotify developer app (redirect URI http://127.0.0.1:43828/callback). Loshify's setup card walks you through it and saves it here."
+oauth:
+  - id: spotify
+    authorize_url: https://accounts.spotify.com/authorize
+    token_url: https://accounts.spotify.com/api/token
+    scopes:
+      - user-top-read
+      - user-library-read
+      - user-library-modify
+      - user-read-recently-played
+      - playlist-read-private
+      - playlist-modify-private
+      - playlist-modify-public
+      - user-read-playback-state
+      - user-modify-playback-state
+      - user-read-currently-playing
+    client_id_env: LOSHIFY_SPOTIFY_CLIENT_ID  # public PKCE client: no client_secret_env
+    hosts: [api.spotify.com]
+# tests/test_manifest.py keeps these lists equal to what register() registers.
+provides_tools: [loshify_setup, loshify_taste, loshify_reactions, loshify_curate, loshify_react, loshify_rotation, loshify_onboard]
+provides_hooks: [pre_llm_call]
+capabilities: []
+python_dependencies: []
+config_schema:
+  spotify_client_id:
+    type: secret
+    env: LOSHIFY_SPOTIFY_CLIENT_ID
+    label: "Spotify Client ID"
+    description: "From your app at developer.spotify.com/dashboard. Not a password; stored in this profile's .env."
+  inject_taste:
+    type: bool
+    default: true
+    label: "Taste brief"
+    description: "Give the agent a short taste brief when you talk about music."
+  dislike_skips:
+    type: bool
+    default: true
+    description: "👎 also skips to the next track."
+  dislike_removes_from_playlist:
+    type: bool
+    default: true
+    description: "👎 also removes the track, but only from playlists Loshify created."
+  love_saves_to_liked:
+    type: bool
+    default: false
+    description: "❤️ also saves the track to your Liked Songs."
+  playlist_size:
+    type: int
+    default: 25
+    description: "Tracks per curated playlist."
+  archive_probation_days:
+    type: int
+    default: 90
+    label: "Archive probation (days)"
+    description: "A rotation track that ended its edition without a ❤️ stays in the Archive this long, then ages out. ❤️ tracks stay for good; 👎 never enter."
+  archive_cap:
+    type: int
+    default: 200
+    label: "Archive size cap"
+    description: "Most tracks kept in a rotation's Archive; above it the oldest non-❤️ tracks leave first. ❤️ tracks are never evicted."
+  tune_in_days:
+    type: int
+    default: 10
+    label: "Tune in every (days)"
+    description: "After your first run, an optional 5-pick Tune in round becomes available again this often (7-14 days)."
+  demo_mode:
+    type: bool
+    default: false
+    label: "Demo mode (recording/testing)"
+    description: "For recording a demo or testing: Tune in is available right away (no 7-14-day wait), and the card shows the last Archive refresh counts and your taste line. Real data only. Leave off for everyday use."
+  poll_interval_open:
+    type: int
+    default: 3
+    description: "Seconds between playback polls while the player is open."
+  poll_interval_closed:
+    type: int
+    default: 5
+    description: "Seconds between playback polls while the player is closed."
