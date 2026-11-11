@@ -795,3 +795,16 @@ test('without an open chat, a rotation request is shown as text and the words ar
   assert.match(sdk.calls.notify.at(-1).message, /Open a chat/)
   assert.equal(store.arrange.get(), 'quiet mornings')
 })
+
+
+test('wizard state machine: fresh profile, no Client ID → step 4 is never pre-done (t_089118df)', () => {
+  // What /setup now answers for a fresh profile even though Hermes says "not signed in".
+  const s = { ready: false, step: 'client_id', next_step: 'Set up your own Spotify app…' }
+  const fresh = setupView(s, false, {})
+  assert.equal(fresh.status.client_id, 'todo')
+  assert.equal(fresh.doneCount, 0)
+  const v = setupView(s, false, { dashboard: true, app: true, users: true })
+  assert.equal(v.status.client_id, 'current')
+  assert.equal(v.open, 'client_id')
+  assert.equal(statuses(v), 'done done done current todo todo todo')
+})

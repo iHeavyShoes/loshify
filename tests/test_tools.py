@@ -273,3 +273,22 @@ def test_hook_never_raises_and_is_fast(tmp_path):
     assert (time.perf_counter() - start) / 50 < 0.005
     env.rt.store_factory = lambda: (_ for _ in ()).throw(OSError("locked"))
     assert h.taste_hook(env.rt, "music") is None
+
+
+def test_setup_tool_without_a_client_id_starts_the_guide_at_step_1(tmp_path):
+    # t_089118df: the chat guide had the same ordering bug (start_at "connect" with no Client ID).
+    env = Env(tmp_path)
+    env.rt.has_client_id = lambda: False
+    env.fake.routes[("GET", "/v1/me")] = [ProviderNotSignedIn("no grant")]
+    out = env.call("loshify_setup")
+    assert out["ready"] is False and out["step"] == "client_id" and out["guide"]["start_at"] == "dashboard"
+    assert "Client ID" in out["next_step"] and "hermes auth add" not in out["next_step"]
+
+
+def test_other_tools_without_a_client_id_point_to_the_client_id_step(tmp_path):
+    env = Env(tmp_path)
+    env.rt.has_client_id = lambda: True
+    assert h._setup_error(sp.SpotifyError("x", setup="signin"), env.rt)["setup"] == "signin"
+    env.rt.has_client_id = lambda: False
+    out = h._setup_error(sp.SpotifyError("x", setup="signin"), env.rt)
+    assert out["setup"] == "client_id" and "Client ID" in out["next_step"]

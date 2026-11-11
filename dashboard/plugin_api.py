@@ -345,11 +345,13 @@ def forget_snapshots() -> None:
 
 # ── setup ───────────────────────────────────────────────────────────────────────────────────────
 
-def setup_state() -> Dict[str, Any]:
+def setup_state(client_id_saved: bool = False) -> Dict[str, Any]:
     """What the setup card shows: ``{ready, step, next_step?, status?, onboarded, redirect_uri, …}``.
 
     ``step`` is the user's next step: ``client_id`` (paste the Client ID), ``signin`` (run the sign-in
-    command), ``app`` / ``premium_or_users`` (fix the Spotify app), ``retry`` or ``done``.
+    command), ``app`` / ``premium_or_users`` (fix the Spotify app), ``retry`` or ``done``. The Client ID
+    is checked (presence only) before Spotify is called; *client_id_saved* says this request just saved
+    it, since a profile scope bound before the save may not show it yet.
     """
     su = _core("setup")
     token = _bind_profile_scope()
@@ -359,7 +361,7 @@ def setup_state() -> Dict[str, Any]:
             db = store_factory()
         except Exception:
             db = None  # no store yet must not hide the setup steps
-        out = su.probe(client_factory(), db)
+        out = su.probe(client_factory(), db, (lambda: True) if client_id_saved else client_id_present)
         out["onboarded"] = bool(db is not None and db.onboarded_at)
     except Exception as exc:
         out = {"ready": False, "step": "retry", "next_step": su.NEXT_STEP["retry"], "onboarded": False,
@@ -390,6 +392,11 @@ def _default_save_client_id(value: str) -> None:
 save_client_id: Callable[[str], None] = _default_save_client_id  # seam: tests swap in a recorder
 
 
+def client_id_present() -> Optional[bool]:
+    """Presence of the Client ID in the serving profile (``core.setup.client_id_present``). Seam for tests."""
+    return _core("setup").client_id_present()
+
+
 @router.post("/setup/client-id")
 def setup_client_id(payload: Optional[Dict[str, Any]] = Body(default=None)) -> Dict[str, Any]:
     """Wizard step 5: paste the Client ID → saved into the plugin setting → re-probe. The value is never echoed."""
@@ -406,7 +413,7 @@ def setup_client_id(payload: Optional[Dict[str, Any]] = Body(default=None)) -> D
                                       "Loshify instead."}
     finally:
         _release_scope(token)
-    return {"ok": True, "saved": True, "setup": setup_state()}
+    return {"ok": True, "saved": True, "setup": setup_state(client_id_saved=True)}
 
 
 # ── player ──────────────────────────────────────────────────────────────────────────────────────

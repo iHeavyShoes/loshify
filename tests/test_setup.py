@@ -172,3 +172,61 @@ def test_onboard_raises_on_signin_problem(db):
     fake.routes[("GET", "/v1/me/top/artists")] = [ProviderNotSignedIn("gone")]
     with pytest.raises(sp.SpotifyError):
         su.onboard(client(fake), db, NOW)
+
+
+# ── Client ID presence before GET /me (t_089118df) ──────────────────────────────────────────────
+# Real Hermes answers "not signed in" for a fresh profile before it looks at the Client ID, so a
+# probe that trusted GET /me alone sent the user straight to the sign-in command (wizard 1–4 "done").
+
+def test_no_client_id_and_not_signed_in_is_the_client_id_step_not_signin():
+    fake = FakeSpotify([])
+    fake.routes[("GET", "/v1/me")] = [ProviderNotSignedIn("no grant")]
+    out = su.probe(client(fake), has_client_id=lambda: False)
+    assert out["ready"] is False and out["step"] == "client_id"
+    assert out["next_step"] == su.NEXT_STEP["client_id"] and "problem" not in out
+    assert fake.calls == []  # no point asking Spotify before there is a Client ID
+    assert su.guide(out["step"])["start_at"] == "dashboard"  # chat guide starts at step 1, not "connect"
+
+
+def test_client_id_set_and_not_signed_in_is_the_signin_step():
+    fake = FakeSpotify([])
+    fake.routes[("GET", "/v1/me")] = [ProviderNotSignedIn("no grant")]
+    out = su.probe(client(fake), has_client_id=lambda: True)
+    assert out["step"] == "signin" and su.guide(out["step"])["start_at"] == "connect"
+
+
+def test_unknown_client_id_presence_falls_back_to_get_me():
+    fake = FakeSpotify([])
+    fake.routes[("GET", "/v1/me")] = [AuthError("x", code="oauth_client_id_missing")]
+    assert su.probe(client(fake), has_client_id=lambda: None)["step"] == "client_id"
+    assert su.probe(client(FakeSpotify([])), has_client_id=lambda: None)["ready"] is True
+
+
+def test_client_id_present_asks_hermes_scoped_reader_for_presence_only(monkeypatch):
+    import sys
+    import types
+    seen = []
+    values = {}
+    mod = types.ModuleType("agent.secret_scope")
+    mod.get_secret = lambda name, default=None: seen.append(name) or values.get(name, default)
+    pkg = types.ModuleType("agent")
+    pkg.secret_scope = mod
+    monkeypatch.setitem(sys.modules, "agent", pkg)
+    monkeypatch.setitem(sys.modules, "agent.secret_scope", mod)
+    assert su.client_id_present() is False
+    values[su.CLIENT_ID_ENV] = "   "
+    assert su.client_id_present() is False
+    values[su.CLIENT_ID_ENV] = "0123456789abcdef0123456789abcdef"
+    assert su.client_id_present() is True
+    assert set(seen) == {"LOSHIFY_SPOTIFY_CLIENT_ID"}
+
+    def unscoped(name, default=None):
+        raise RuntimeError("no profile scope")
+    mod.get_secret = unscoped
+    assert su.client_id_present() is None  # unknown, never "missing"
+
+
+def test_client_id_present_without_hermes_is_unknown(monkeypatch):
+    import sys
+    monkeypatch.setitem(sys.modules, "agent.secret_scope", None)  # import fails
+    assert su.client_id_present() is None

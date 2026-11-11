@@ -41,6 +41,7 @@ SETTING_DEFAULTS: dict[str, Any] = {
 class Runtime:
     store_factory: Callable[[], Store] = open_store
     client_factory: Callable[[], SpotifyClient] = SpotifyClient
+    has_client_id: Callable[[], Optional[bool]] = su.client_id_present
     get_setting: Callable[[str, Any], Any] = field(default=lambda key, default: default)
     now: Callable[[], Optional[int]] = field(default=lambda: None)
 
@@ -88,11 +89,20 @@ def _json(payload: Mapping) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
-def _setup_error(exc: SpotifyError) -> dict:
+def _setup_error(exc: SpotifyError, rt: Optional[Runtime] = None) -> dict:
     out = exc.to_dict()
-    if exc.setup:
-        out["next_step"] = su.NEXT_STEP.get(exc.setup, su.NEXT_STEP["retry"])
+    if exc.setup == su.SETUP_SIGNIN and rt is not None and _safe_has_client_id(rt) is False:
+        out["setup"] = su.SETUP_CLIENT_ID  # "not signed in" also when the Client ID was never pasted
+    if out.get("setup"):
+        out["next_step"] = su.NEXT_STEP.get(out["setup"], su.NEXT_STEP["retry"])
     return out
+
+
+def _safe_has_client_id(rt: Runtime) -> Optional[bool]:
+    try:
+        return rt.has_client_id()
+    except Exception:
+        return None
 
 
 def _guard(fn: Callable[[Runtime, dict], dict]) -> Callable[..., str]:
@@ -101,7 +111,7 @@ def _guard(fn: Callable[[Runtime, dict], dict]) -> Callable[..., str]:
         try:
             return _json(fn(rt, dict(args or {}) if isinstance(args, Mapping) else {}))
         except SpotifyError as exc:
-            return _json(_setup_error(exc))
+            return _json(_setup_error(exc, rt))
         except ValueError as exc:
             return _json({"ok": False, "error": str(exc)})
         except Exception as exc:  # last resort; no traceback (could carry request details) to the model
@@ -117,7 +127,7 @@ def _guard(fn: Callable[[Runtime, dict], dict]) -> Callable[..., str]:
 def setup(rt: Runtime, args: dict) -> dict:
     client = rt.client_factory()
     with rt.store() as db:
-        state = su.probe(client, db)
+        state = su.probe(client, db, lambda: _safe_has_client_id(rt))
         if not state["ready"]:
             out = {"ok": True, **state, "guide": su.guide(state["step"]), "redirect_uri": su.REDIRECT_URI,
                    "signin_command": su.SIGNIN_COMMAND}

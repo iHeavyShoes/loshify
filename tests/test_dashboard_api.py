@@ -427,3 +427,27 @@ def test_onboarding_skip_route(env):
     out = post(http, "/onboarding/skip", {"step": "portrait"})
     assert out["ok"] and out["data"]["next_step"] == "anchors"
     assert post(http, "/onboarding/skip", {"step": "nope"})["ok"] is False
+
+
+def test_setup_without_a_client_id_is_step_client_id_even_when_hermes_says_not_signed_in(env, monkeypatch):
+    # t_089118df: fresh profile, no Client ID. Real Hermes raises ProviderNotSignedIn for GET /me before it
+    # checks the Client ID; /setup must still answer client_id (wizard step 4), never signin (1–4 "done").
+    from fakes import ProviderNotSignedIn
+    client, fake, _, _ = env
+    monkeypatch.setattr(api, "client_id_present", lambda: False)
+    fake.routes[("GET", "/v1/me")] = [ProviderNotSignedIn("no grant")]
+    out = get(client, "/setup")
+    assert out["ready"] is False and out["step"] == "client_id" and "Client ID" in out["next_step"]
+    monkeypatch.setattr(api, "client_id_present", lambda: True)
+    fake.routes[("GET", "/v1/me")] = [ProviderNotSignedIn("no grant")]
+    assert get(client, "/setup")["step"] == "signin"
+
+
+def test_setup_client_id_save_moves_on_to_signin_even_if_the_scope_lags(env, monkeypatch):
+    from fakes import ProviderNotSignedIn
+    client, fake, _, _ = env
+    monkeypatch.setattr(api, "client_id_present", lambda: False)  # the bound scope predates the save
+    monkeypatch.setattr(api, "save_client_id", lambda value: None)
+    fake.routes[("GET", "/v1/me")] = [ProviderNotSignedIn("no grant")]
+    out = post(client, "/setup/client-id", {"client_id": GOOD_ID})
+    assert out["ok"] is True and out["setup"]["step"] == "signin"

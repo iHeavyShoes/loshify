@@ -1,8 +1,11 @@
 """Readiness probe and onboarding seed.
 
 ``probe`` answers "can Loshify talk to Spotify yet, and if not, what is the user's next step?" with
-one ``GET /me``. It never reads the environment or a credential store: the client-ID and sign-in
-states come back from Hermes as typed errors (``core/spotify.map_exception``).
+one ``GET /me``. It never reads a credential store: the sign-in state comes back from Hermes as a typed
+error (``core/spotify.map_exception``). The Client ID is checked first, for presence only, through the
+same Hermes reader the sign-in uses (``client_id_present``): with no grant Hermes answers "not signed
+in" before it ever looks at the Client ID, so ``GET /me`` alone cannot tell "paste the Client ID" from
+"run the sign-in command".
 
 ``onboard`` seeds taste from listening history (top artists/tracks for 3 ranges, saved tracks,
 recently played) within a fixed call budget, and returns a *portrait payload*: facts the agent turns
@@ -15,7 +18,7 @@ from __future__ import annotations
 import re
 import time
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from . import portrait, taste
 from .spotify import (SETUP_APP, SETUP_CLIENT_ID, SETUP_INTERNAL, SETUP_PREMIUM_OR_USERS, SETUP_SIGNIN, SpotifyClient,
@@ -124,6 +127,22 @@ def check_client_id(raw: Any) -> tuple[Optional[str], Optional[str]]:
     return text, None
 
 
+def client_id_present() -> Optional[bool]:
+    """Is ``LOSHIFY_SPOTIFY_CLIENT_ID`` set for this profile? ``None`` when Hermes can't be asked.
+
+    Presence only: the value is read through Hermes's own profile-scoped reader (the one its plugin
+    sign-in uses, after Settings → Plugins or the wizard saved it) and never leaves this function.
+    """
+    try:
+        from agent.secret_scope import get_secret
+    except Exception:  # no Hermes (validate's bare interpreter, tests): let GET /me decide
+        return None
+    try:
+        return bool(str(get_secret(CLIENT_ID_ENV) or "").strip())
+    except Exception:  # e.g. no profile scope bound: unknown, not "missing"
+        return None
+
+
 def guide(step: Optional[str] = None) -> dict:
     """The setup steps for chat, plus where this user starts (``start_at``)."""
     return {"steps": [{"step": sid, "do": text} for sid, text in GUIDE],
@@ -134,17 +153,26 @@ def _now(now: Optional[int]) -> int:
     return int(now if now is not None else time.time())
 
 
-def probe(client: SpotifyClient, store: Optional[Store] = None) -> dict:
+def _not_ready(step: str) -> dict:
+    return {"ready": False, "step": step, "next_step": NEXT_STEP.get(step, NEXT_STEP["retry"])}
+
+
+def probe(client: SpotifyClient, store: Optional[Store] = None,
+          has_client_id: Optional[Callable[[], Optional[bool]]] = None) -> dict:
     """One real ``GET /me``: ``{ready, step, next_step?, problem?, fix?, status?, reason?, note?}``.
 
     *step* is the user's next step (``client_id``, ``signin``) or ``done``; a failure that needs the user
     to fix something also names it as ``problem`` (a ``FIXES`` key) with ``fix`` in plain words.
+    No Client ID in this profile → ``client_id`` without calling Spotify (*has_client_id* defaults to
+    :func:`client_id_present`). A "not signed in" answer is only trusted once the Client ID is there.
     """
+    if (has_client_id or client_id_present)() is False:
+        return _not_ready(SETUP_CLIENT_ID)
     try:
         me = client.me()
     except SpotifyError as exc:
         step = exc.setup or "retry"
-        out: dict[str, Any] = {"ready": False, "step": step, "next_step": NEXT_STEP.get(step, NEXT_STEP["retry"])}
+        out: dict[str, Any] = _not_ready(step)
         problem = PROBLEM_FOR_STEP.get(step) if step in NEXT_STEP else "no_answer"
         if problem:
             out.update(problem=problem, fix=FIXES[problem])
@@ -207,4 +235,4 @@ def onboard(client: SpotifyClient, store: Store, now: Optional[int] = None) -> d
 
 
 __all__ = ["CALL_BUDGET", "CLIENT_ID_ERRORS", "FIXES", "GUIDE", "NEXT_STEP", "REDIRECT_PORT", "REDIRECT_URI",
-           "SIGNIN_COMMAND", "WHY_LINE", "check_client_id", "guide", "onboard", "portrait_payload", "probe"]
+           "SIGNIN_COMMAND", "WHY_LINE", "check_client_id", "client_id_present", "guide", "onboard", "portrait_payload", "probe"]
