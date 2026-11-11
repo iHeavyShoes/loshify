@@ -1,7 +1,5 @@
 # Loshify
 
-<!-- demo: add video link and screenshot before submission -->
-
 **A Spotify curator that knows you.** Loshify learns your taste from your listening history and from
 one-tap reactions, builds playlists with a reason for every track, and remembers what you loved and
 what you never want to hear again. It is a Hermes Agent plugin with an agent half (seven tools, a
